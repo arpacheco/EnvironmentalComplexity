@@ -1,11 +1,5 @@
 function [C,data] = generateCMatrix(expDataFile,selectSpecies,nutrients,selectNutrients)
 
-%% Define inputs
-
-% selectSpecies = {'Me','Pa'};
-% selectNutrients = {'D-Glucose','Pyruvate','Succinate'};
-% expDataFile = '../../Experiments/Results/CrossfeedingMar2020/BsMePaSo_PROld.xlsx';
-
 %% Initialize C matrix
 
 C = zeros(length(selectSpecies),length(selectNutrients));

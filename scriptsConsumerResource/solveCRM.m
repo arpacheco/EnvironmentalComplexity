@@ -4,6 +4,18 @@
 % species-specific nutrient utilization probabilities and FBA-predicted
 % exchange. Requires COBRA toolbox for FBA predictions.
 %
+% Outputs: 
+%   -relAbus: an N x S matrix containing organism relative abundances
+%    in each environmental condition, where N is the number of conditions
+%    and S is the number of organisms. 
+%
+%   - if plotIndividuals is set to 1, a figure showing the time-dependent
+%   trajectory of organism and resource abundances, as well as final
+%   species abundances for the final tested nutrient condition. Here, since
+%   the environmental conditions of com4 are tested, the figure will
+%   display these data for the last condition, i.e. the condition
+%   in which all 32 carbon sources are provided to the organisms.
+%
 % Alan R. Pacheco, 04/23/2020
 
 %% Define filenames and select species and nutrients
@@ -12,35 +24,40 @@ clearvars
 
 selectSpecies = {'Bs','Me','So','Pa'}; % B. subtilis, M. extorquens, S. oneidensis, and P. aeruginosa (corresponds to 'com4')
 crossfeeding = 1; % If 0, D matrix is all zeros
+premadeDMatrix = 1; % As a demo, a premade D Matrix has been generated for com4. If desired, set to 1 and see line 40
 plotIndividuals = 1; % If 1, will plot simulation data for last individual community
 monod = 1; % If 1, uses Monod dynamics in species growth and metabolite consumption
 sequentialConsumption = 0; % If 1, organisms consume metabolites sequentially
-timestep = 0.01;
+timestep = 0.01; % Simulation timestep
 
-% Load monoculture data
-monoGrowthDataFile = 'BsMePaSo_PROld.xlsx';
-load 32CSNutrients.mat
-allPossibleSpecies = {'Bs','Me','So','Pa'};
+% Load monoculture and nutrient data
+monoGrowthDataFile = 'BsMePaSo_PROld.xlsx'; % Contains species-specific monoculture growth data for generating C matrix
+load 32CSNutrients.mat % Contains list of nutrients and combinations
+conditionsToTest = [1:size(nutrientComboMap,1)-1]; % Defines which nutrient combinations will be simulated. Here, all 63 condition from com4 are selected
 
-% Generate D matrix from model files
-DFull = generateDMatrix('modelsBsMeSoPa.mat','nutrients32FBA.mat','minMed.mat');
+% Generate D matrix, either by loading a premade example or by using FBA
+if premadeDMatrix
+    load 'DMatrixBsMeSoPa.mat';
+else
+    DFull = generateDMatrix('modelsBsMeSoPa.mat','nutrients32FBA.mat','minMed.mat');
+end
 
-[growingSpecies,yields] = deal(zeros(64,1));
+%% Initialize data structures and run CRM
+[growingSpecies,yields] = deal(zeros(size(nutrientComboMap,1),1));
 relAbus = zeros(size(nutrientComboMap,1),length(selectSpecies));
-for q = 1:size(nutrientComboMap,1)-1
+for q = 1:length(conditionsToTest)
 
-selectNutrientCombo = q;
+selectNutrientCombo = conditionsToTest(q);
 disp([num2str(q),'/',num2str(size(nutrientComboMap,1))])
     
-%% Get nutrient concentrations
+% Get nutrient concentrations
 selectNutrients = nutrients(find(nutrientComboMap(selectNutrientCombo,:)))
 selectNutrientsIndices = find(ismember(nutrients,selectNutrients));
 nutrientMassPerVolume = MW.*nutrientConcs; % g/L
 
-%% Set simulation parameters
+% Set simulation parameters
 
-global S M C D g w l m k d kR monodTerm sequential initConcs
-% N is CFU/mL, R is g/mL
+global S M C D g w l m k d kR monodTerm sequential initConcs % N is CFU/mL, R is g/mL
 
 monodTerm = monod;
 sequential = sequentialConsumption;
@@ -56,6 +73,7 @@ l = ones(1,length(nutrients)).*0.8; % Leakage fraction for resource a (unitless)
 % Use the D matrix to get all the metabolites in the simulation
 D = DFull;
 if crossfeeding
+
     D(find(D>1)) = 1-(1/D(find(D>1))); % ratios should max out at 1
     
     transformedNutrients = nutrients(find(sum(sum(D(:,find(ismember(nutrients,selectNutrients)),:),3),2)));
@@ -84,7 +102,7 @@ l = l(simulationNutrientIndices);
 [C,growthData] = generateCMatrix(monoGrowthDataFile,selectSpecies,nutrients,simulationNutrients); % Uptake rate per unit concentration of resource a by species i (mL/hour)
 C = C.*1e-5;
 
-%% Set initial conditions and solve system of ODEs
+% Set initial conditions and solve system of ODEs
 
 N0 = ones(1,S).*6e6; % approximately OD 0.5 diluted to 5µl/300µl
 
@@ -101,7 +119,7 @@ I0 = [N0 R0];
 timeRange = [0:timestep:288];
 [T,X]=ode15s('CRM',timeRange,I0);
 
-%% Get relative abundances
+% Get relative abundances
 
 N = X(:,1:S);
 R = X(:,S+1:end);
@@ -125,65 +143,64 @@ close all
 
 if plotIndividuals
     
-c=[48,44,129;66,154,203;170,188,116;255,184,111]./255;
+    c=[48,44,129;66,154,203;170,188,116;255,184,111]./255;
 
-if crossfeeding && length(setdiff(transformedNutrients,selectNutrients)) > 0 
-    numplots = 4; else numplots = 3; 
-end
-numplots=4;
+    if crossfeeding && length(setdiff(transformedNutrients,selectNutrients)) > 0 
+        numplots = 4; else numplots = 3; 
+    end
+    numplots=4;
 
-figure
-subplot(1,numplots,1)
-for i = 1:S
-    plot(T,N(:,i),'LineWidth',4,'Color',c(i,:))
-    hold on
-end
+    figure
+    subplot(1,numplots,1)
+    for i = 1:S
+        plot(T,N(:,i),'LineWidth',4,'Color',c(i,:))
+        hold on
+    end
 
-legend(selectSpecies)
-xlabel('Time (h)')
-ylabel('Species abundance (CFU/mL)')
-yl = ylim;
-yyaxis right
-set(gca, 'YTick', round([0:yl(2)/8e8/5:yl(2)/8e8],2), 'ylim', [0, yl(2)/8e8])
-ylabel('Species abundance (OD600)')
-xl = xlim;
-set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
-title('Growth yields')
+    legend(selectSpecies)
+    xlabel('Time (h)')
+    ylabel('Species abundance (CFU/mL)')
+    yl = ylim;
+    yyaxis right
+    set(gca, 'YTick', round([0:yl(2)/8e8/5:yl(2)/8e8],2), 'ylim', [0, yl(2)/8e8])
+    ylabel('Species abundance (OD600)')
+    xl = xlim;
+    set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
+    title('Growth yields')
 
-subplot(1,numplots,2)
-b = bar([relAbu;relAbu],'stacked');
-b(1).Parent.Parent.Colormap = c(1:S,:);
-xlim([0.5,1.5])
-ylim([0,1])
-legend(selectSpecies)
-ylabel('Relative abundance')
-set(gca,'FontSize',16,'XTickLabel',[])
-title('Endpoint relative abundances')
+    subplot(1,numplots,2)
+    b = bar([relAbu;relAbu],'stacked');
+    b(1).Parent.Parent.Colormap = c(1:S,:);
+    xlim([0.5,1.5])
+    ylim([0,1])
+    legend(selectSpecies)
+    ylabel('Relative abundance')
+    set(gca,'FontSize',16,'XTickLabel',[])
+    title('Endpoint relative abundances')
 
-subplot(1,numplots,3)
-for a = 1:length(selectNutrients)
-    plot(T,R(:,a),'LineWidth',4)
-    hold on
-end
-legend(selectNutrients)
-xlabel('Time (h)')
-ylabel('Resource abundance (g/mL)')
-xl = xlim;
-set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
-title('Supplied resource abundance')
+    subplot(1,numplots,3)
+    for a = 1:length(selectNutrients)
+        plot(T,R(:,a),'LineWidth',4)
+        hold on
+    end
+    legend(selectNutrients)
+    xlabel('Time (h)')
+    ylabel('Resource abundance (g/mL)')
+    xl = xlim;
+    set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
+    title('Supplied resource abundance')
 
-if crossfeeding && length(setdiff(transformedNutrients,selectNutrients)) > 0 
-subplot(1,numplots,4)
-for a = 1:length(setdiff(transformedNutrients,selectNutrients))
-    plot(T,R(:,length(selectNutrients)+a),'LineWidth',4)
-    hold on
-end
-legend(setdiff(transformedNutrients,selectNutrients))
-xlabel('Time (h)')
-ylabel('Resource abundance (g/mL)')
-xl = xlim;
-set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
-title('Transformed resource abundance')
-end
-
+    if crossfeeding && length(setdiff(transformedNutrients,selectNutrients)) > 0 
+    subplot(1,numplots,4)
+    for a = 1:length(setdiff(transformedNutrients,selectNutrients))
+        plot(T,R(:,length(selectNutrients)+a),'LineWidth',4)
+        hold on
+    end
+    legend(setdiff(transformedNutrients,selectNutrients))
+    xlabel('Time (h)')
+    ylabel('Resource abundance (g/mL)')
+    xl = xlim;
+    set(gca,'FontSize',16,'XTick',[0:48:xl(2)])
+    title('Transformed resource abundance')
+    end
 end

@@ -63,7 +63,7 @@ sheetName = 'level-7';
 speciesResolution = 1;
 
 mapDataFile = 'dataExperimental/coordNutrientMap.xlsx'; % Coordinate-nutrient mapping data
-yieldDataFile = 'dataExperimental/com13_OD_288h.xlsx'; % Total yield data
+yieldDataFile = 'dataExperimental/com3_4_13_OD_288h.xlsx'; % Total yield data
 normalized = 1;
 groThreshold = 0.01;
 
