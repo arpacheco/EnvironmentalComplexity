@@ -374,8 +374,8 @@ sample2 = shannon(find(numCSources == numCarbonSourcesToCompare(2))-1);
 uniqueNumCSources = unique(numCSources);
 lineColors = [149,178,176;51, 101, 138;0, 21, 36]./255;
 
-dataCRM_NoGeneralists = 'dataConsumerResource/epistasisS13_N32_G0_RS50_nSM10_062320.mat';
-dataCRM_WithGeneralists = 'dataConsumerResource/epistasisS13_N32_GV_RS50_nSM10_062320.mat';
+dataCRM_NoGeneralists = 'dataConsumerResource/epistasisS13_N32_G0_RS50_nSM10.mat';
+dataCRM_WithGeneralists = 'dataConsumerResource/epistasisS13_N32_GV_RS50_nSM10.mat';
 
 figure
 subplot(1,2,1)

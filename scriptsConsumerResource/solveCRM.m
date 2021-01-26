@@ -16,7 +16,7 @@
 %   display these data for the last condition, i.e. the condition
 %   in which all 32 carbon sources are provided to the organisms.
 %
-% Alan R. Pacheco, 04/23/2020
+% Alan R. Pacheco, 04/23/2020, modified 01/26/2021
 
 %% Define filenames and select species and nutrients
 
@@ -28,10 +28,12 @@ premadeDMatrix = 1; % As a demo, a premade D Matrix has been generated for com4.
 plotIndividuals = 1; % If 1, will plot simulation data for last individual community
 monod = 1; % If 1, uses Monod dynamics in species growth and metabolite consumption
 sequentialConsumption = 0; % If 1, organisms consume metabolites sequentially
-timestep = 0.01; % Simulation timestep
+timestep = 0.01; % Time resolution of simulation
+totalExpLength = 288; % Total length of the experiment, in hours
+dilutionTime = 48; % Frequency of dilutions, in hours
 
 % Load monoculture and nutrient data
-monoGrowthDataFile = 'BsMePaSo_PROld.xlsx'; % Contains species-specific monoculture growth data for generating C matrix
+monoGrowthDataFile = '../dataExperimental/stockGrowthStrainsJan2021'; % Contains species-specific monoculture growth data for generating C matrix
 load 32CSNutrients.mat % Contains list of nutrients and combinations
 conditionsToTest = [1:size(nutrientComboMap,1)-1]; % Defines which nutrient combinations will be simulated. Here, all 63 condition from com4 are selected
 
@@ -43,7 +45,7 @@ else
 end
 
 %% Initialize data structures and run CRM
-[growingSpecies,yields] = deal(zeros(size(nutrientComboMap,1),1));
+[growingSpecies,yields,rho] = deal(zeros(size(nutrientComboMap,1),1));
 relAbus = zeros(size(nutrientComboMap,1),length(selectSpecies));
 for q = 1:length(conditionsToTest)
 
@@ -67,7 +69,7 @@ g = ones(1,S).*1; % Conversion factor from energy uptake to growth rate (1/energ
 m = ones(1,S).*0.025; % Minimal energy uptake for maintenance of each species (energy/hour)
 
 M = length(selectNutrients); % Number of limiting nutrients
-w = ones(1,length(nutrients))*1e9; % Energy content of resource a (energy/g)
+w = ones(1,length(nutrients))*2.5e9; % Energy content of resource a (energy/g)
 l = ones(1,length(nutrients)).*0.8; % Leakage fraction for resource a (unitless) SET TO 0.8
 
 % Use the D matrix to get all the metabolites in the simulation
@@ -99,30 +101,48 @@ simulationNutrientIndices = find(ismember(nutrients,simulationNutrients));
 w = w(simulationNutrientIndices);
 l = l(simulationNutrientIndices);
 
-[C,growthData] = generateCMatrix(monoGrowthDataFile,selectSpecies,nutrients,simulationNutrients); % Uptake rate per unit concentration of resource a by species i (mL/hour)
-C = C.*1e-5;
+C = generateCMatrix(monoGrowthDataFile,selectSpecies,simulationNutrients); % Uptake rate per unit concentration of resource a by species i (mL/hour)
+C = C.*5e-5;
+rho(q) = (mean(C(:))^2)/(mean(C(:))^2+var(C(:)));
 
 % Set initial conditions and solve system of ODEs
 
 N0 = ones(1,S).*6e6; % approximately OD 0.5 diluted to 5µl/300µl
 
-R0 = ones(1,length(simulationNutrients)).*1e-1; % Baseline must be greater than 0 to allow for D matrix turnover
+R0 = ones(1,length(simulationNutrients)).*1e-10; % Baseline must be greater than 0 to allow for D matrix turnover
 totalNutrient = 1.5; %g/L
 R0(find(ismember(simulationNutrients,selectNutrients))) = totalNutrient./(length(selectNutrients));  % g/L, scaled but otherwise equal since CRM does not care about number of carbon atoms
-k = R0/48; % External supply of resource a (grams/mL/hour), equals R0 divided by 48 hour replenishment period
-d = 1/(10/(300*48)); % Timescale for dilution (hour). 10ul/300ul every 48h
-kR = ones(1,length(simulationNutrients)).*3000; %250
+k = R0.*0; % External continuous supply of resource a (grams/mL/hour)
+d = Inf;
+kR = ones(1,length(simulationNutrients)).*1e4;
 initConcs = R0;
 
 I0 = [N0 R0];
 
-timeRange = [0:timestep:288];
+timeRange = [0:timestep:dilutionTime];
 [T,X]=ode15s('CRM',timeRange,I0);
 
-% Get relative abundances
+dilutionTimes = [0:dilutionTime:totalExpLength-dilutionTime];
 
-N = X(:,1:S);
-R = X(:,S+1:end);
+[N,R] = deal([]);
+N = [N;X(:,1:S)];
+R = [R;X(:,S+1:end)];
+
+for t = 2:length(dilutionTimes)
+    
+    Nn = X(end,1:S)*(10/300); % Dilute organisms 10µl into 300µl
+    Rn = X(end,S+1:end)*(10/300) + R0; % Dilute remaining nutrient and add in R0
+    
+    timeRange = [T(end):timestep:T(end)+dilutionTime];
+    [Tn,X]=ode15s('CRM',timeRange,[Nn Rn]);
+    
+    N = [N;X(:,1:S)];
+    R = [R;X(:,S+1:end)];
+    T = [T;Tn];
+    
+end
+
+% Get relative abundances
 
 abundances = N(end,:);
 abundances(find(abundances < 0)) = 0;

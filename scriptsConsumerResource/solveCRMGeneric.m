@@ -3,7 +3,7 @@
 % Runs statistical ensembles of consumer resource models from CRM.m based
 % on species-specific nutrient utilization probabilities
 %
-% Alan R. Pacheco, 05/07/2020, modified 09/03/2020
+% Alan R. Pacheco, 05/07/2020, modified 09/03/2020, 01/26/2021
 
 %% Define filenames, species, and nutrients
 
@@ -17,8 +17,8 @@ isGeneralist = zeros(1,numSpecies);
 specialistConsumptionProb = 0.5*ones(1,numSpecies);
 
 % Uncomment below for experimentally-derived species-specific nutrient utilization probabilities (CRM-B)
-% load biologGrowthProbsJun2019.mat
-% specialistConsumptionProb = biologGrowthProbs/100;
+% load stockGrowthProbsJan2021.mat
+% specialistConsumptionProb = stockGrowthProbs/100;
 % isGeneralist = zeros(1,numSpecies);
 
 % Modeling parameters
@@ -27,11 +27,14 @@ transfProb = 0.5; % Probability of each nutrient being secreted as another
 numRandSims = 50; % Number of random simulations per number of secreted metabolites
 monod = 1; % Use Monod dynamics, default = 1
 sequentialConsumption = 0; % Have the organisms exhaust one nutrient before moving to the next, default = 0
+timeStep = 0.01; % Time resolution of simulation
+totalExpLength = 288; % Total length of the experiment, in hours
+dilutionTime = 48; % Frequency of dilutions, in hours
 
 %% Run CRM
 load binaryNutrients32.mat
 
-[growingSpecies,yields,shannon] = deal(zeros(size(nutrientMat,1),maxSecMets+1,numRandSims));
+[growingSpecies,yields,shannon,rho] = deal(zeros(size(nutrientMat,1),maxSecMets+1,numRandSims));
 relAbus = zeros(size(nutrientMat,1),numSpecies,maxSecMets+1,numRandSims);
 for sm = 1:maxSecMets + 1
 
@@ -42,17 +45,17 @@ for sm = 1:maxSecMets + 1
         selectNutrientCombo = q;
 
         relAbusPerCombo = zeros(numRandSims,numSpecies);
-        [yieldsPerCombo,growingSpeciesPerCombo,shannonPerCombo] = deal(zeros(numRandSims,1));
+        [yieldsPerCombo,growingSpeciesPerCombo,shannonPerCombo,rhoPerCombo] = deal(zeros(numRandSims,1));
 
         for r = 1:numRandSims
                         
-            % Get nutrient concentrations
+            %% Get nutrient concentrations
             selectNutrients = nutrients(find(nutrientMat(selectNutrientCombo,:)));
 
             selectNutrientsIndices = find(ismember(nutrients,selectNutrients));
 
 
-            % Set simulation parameters
+            %% Set simulation parameters
 
             global S M C D g w l m k d kR monodTerm sequential
 
@@ -95,7 +98,7 @@ for sm = 1:maxSecMets + 1
                 D = zeros(length(simulationNutrients),length(simulationNutrients),S);
             end
 
-            w = ones(1,length(simulationNutrients))*1e9; % Energy content of resource a (energy/g)
+            w = ones(1,length(simulationNutrients))*2.5e9; % Energy content of resource a (energy/g)
             l = ones(1,length(simulationNutrients)).*0.25; % Leakage fraction for resource a (unitless) SET TO 0.8
 
             % Create C matrix based on generalist/specialist designation
@@ -109,30 +112,47 @@ for sm = 1:maxSecMets + 1
                 end
             end
 
-            C = C.*1e-5;
+            C = C.*5e-5;
 
-            d = 1/(10/(300*48)); % Timescale for resource dilution 
+            d = Inf; % Timescale for resource dilution (set to Inf for serial dilution)
 
-            % Set initial conditions and solve system of ODEs
+            %% Set initial conditions and solve system of ODEs
 
             N0 = ones(1,S).*6e6; % approximately OD 0.5 diluted to 5µl/300µl
 
-            R0 = ones(1,length(simulationNutrients)).*1e-9; % Baseline must be greater than 0 to allow for D matrix turnover
+            R0 = ones(1,length(simulationNutrients)).*1e-10; % Baseline must be greater than 0 to allow for D matrix turnover
             % R0(find(ismember(simulationNutrients,selectNutrients))) = nutrientMassPerVolume(selectNutrientsIndices)'./length(selectNutrients); % g/L, scaled by number of nutrients
             totalNutrient = 1.5;
             R0(find(ismember(simulationNutrients,string(num2cell(selectNutrients))))) = totalNutrient./length(selectNutrients);  % g/L, scaled but otherwise equal since CRM does not care about number of carbon atoms
-            k = R0/48; % External supply of resource a (grams/mL/hour), equals R0 divided by 48 hour replenishment period
-            kR = ones(1,length(simulationNutrients)).*250;
+            k = R0.*0; % External supply of resource a (grams/mL/hour), equals R0 divided by 48 hour replenishment period
+            kR = ones(1,length(simulationNutrients)).*1e4;
 
             I0 = [N0 R0];
 
-            timeRange = [0:.1:288];
+            timeRange = [0:timeStep:dilutionTime];
             [T,X]=ode15s('CRM',timeRange,I0);
+            
+            dilutionTimes = [0:dilutionTime:totalExpLength-dilutionTime];
+
+            [N,R] = deal([]);
+            N = [N;X(:,1:S)];
+            R = [R;X(:,S+1:end)];
+
+            for t = 2:length(dilutionTimes)
+
+                Nn = X(end,1:S)*(10/300); % Dilute organisms 10µl into 300µl
+                Rn = X(end,S+1:end)*(10/300) + R0; % Dilute remaining nutrient and add in R0
+
+                timeRange = [T(end):timeStep:T(end)+dilutionTime];
+                [Tn,X]=ode15s('CRM',timeRange,[Nn Rn]);
+
+                N = [N;X(:,1:S)];
+                R = [R;X(:,S+1:end)];
+                T = [T;Tn];
+
+            end
 
             % Get relative abundances
-
-            N = X(:,1:S);
-            R = X(:,S+1:end);
 
             abundances = N(end,:);
             abundances(find(abundances < N0)) = 0;
@@ -142,6 +162,7 @@ for sm = 1:maxSecMets + 1
             relAbusPerCombo(r,:) = relAbu;
             yieldsPerCombo(r) = sum(abundances)/8e8;
             growingSpeciesPerCombo(r) = length(find(abundances > N0));
+            rhoPerCombo(r) = (mean(C(:))^2)/(mean(C(:))^2+var(C(:)));
             for a = 1:length(relAbu)
                 if relAbu(a) > 0
                     shannonPerCombo(r) = shannonPerCombo(r) - relAbu(a).*log2(relAbu(a));
@@ -153,6 +174,7 @@ for sm = 1:maxSecMets + 1
         yields(q,sm,:) = yieldsPerCombo;
         growingSpecies(q,sm,:) = growingSpeciesPerCombo;  
         shannon(q,sm,:) = shannonPerCombo;
+        rho(q,sm,:) = rhoPerCombo;
     end
 
 relAbus(find(isnan(relAbus))) = 0;

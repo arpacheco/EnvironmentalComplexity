@@ -202,7 +202,7 @@ ylim([0,.55])
 %% 6. Plot epistasis distributions
 
 % Load CRM data for comparison
-load dataConsumerResource/epistasisS13_N32_G0_RS50_nSM10_062320.mat
+load dataConsumerResource/epistasisS13_N32_G0_RS50_nSM10.mat
 load dataExperimental/32CSNutrients.mat
 
 yieldDiff = struct();
@@ -255,7 +255,7 @@ end
 xlabel('Yield Epistasis')
 ylabel('Frequency')
 set(gca,'FontSize',16)
-legend([fieldNames])
+legend(['CRM';fieldNames])
 ylim([0,40])
 XLimits = get(gca,'XLim');
 
